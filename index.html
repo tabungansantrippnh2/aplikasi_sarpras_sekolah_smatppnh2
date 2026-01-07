@@ -12,6 +12,47 @@
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow-x: hidden;
+            position: relative;
+        }
+        
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        
+        #root {
+            width: 100%;
+            min-height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Hide any overflow text */
+        body::after {
+            content: '';
+            display: block;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 100px;
+            background: transparent;
+            pointer-events: none;
+            z-index: -1;
+        }
+    </style>
 </head>
 <body>
     <div id="root"></div>
@@ -79,25 +120,29 @@
 
                 // Set timeout to prevent infinite loading
                 const loadTimeout = setTimeout(() => {
+                    console.log('Loading timeout - continuing anyway');
                     setLoading(false);
                 }, 5000); // 5 seconds timeout
 
                 const itemsRef = database.ref('items');
                 
+                // Initial load
                 itemsRef.once('value')
                     .then((snapshot) => {
                         clearTimeout(loadTimeout);
                         const data = snapshot.val();
+                        console.log('Firebase data loaded:', data);
+                        
                         if (data) {
                             const itemsArray = Object.keys(data).map(key => ({
                                 id: key,
                                 ...data[key]
                             }));
+                            console.log('Items array:', itemsArray);
                             setItems(itemsArray);
-                            setFilteredItems(itemsArray);
                         } else {
+                            console.log('No data in Firebase');
                             setItems([]);
-                            setFilteredItems([]);
                         }
                         setLoading(false);
                     })
@@ -105,13 +150,11 @@
                         clearTimeout(loadTimeout);
                         console.error("Error loading data:", error);
                         setLoading(false);
-                        // Continue with empty data on error
                         setItems([]);
-                        setFilteredItems([]);
                     });
 
-                // Setup real-time listener after initial load
-                itemsRef.on('value', (snapshot) => {
+                // Setup real-time listener
+                const listener = itemsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
                     if (data) {
                         const itemsArray = Object.keys(data).map(key => ({
@@ -119,16 +162,14 @@
                             ...data[key]
                         }));
                         setItems(itemsArray);
-                        setFilteredItems(itemsArray);
                     } else {
                         setItems([]);
-                        setFilteredItems([]);
                     }
                 });
 
                 return () => {
                     clearTimeout(loadTimeout);
-                    itemsRef.off();
+                    itemsRef.off('value', listener);
                 };
             }, []);
 
@@ -181,11 +222,27 @@
                     return;
                 }
 
+                // Ensure all fields are properly set
+                const dataToSave = {
+                    kodeBarang: String(formData.kodeBarang).trim(),
+                    namaBarang: String(formData.namaBarang).trim(),
+                    tahunPerolehan: parseInt(formData.tahunPerolehan) || new Date().getFullYear(),
+                    lokasi: String(formData.lokasi).trim(),
+                    kategori: String(formData.kategori).trim(),
+                    kondisi: String(formData.kondisi).trim() || 'baik',
+                    jumlah: parseInt(formData.jumlah) || 1
+                };
+
+                console.log('Saving data:', dataToSave);
+
                 if (editingItem) {
                     // Update existing item
-                    database.ref('items/' + editingItem.id).update(formData)
+                    database.ref('items/' + editingItem.id).set(dataToSave)
                         .then(() => {
                             alert('Data berhasil diupdate!');
+                            setShowModal(false);
+                            setEditingItem(null);
+                            resetForm();
                         })
                         .catch((error) => {
                             alert('Error: ' + error.message);
@@ -193,18 +250,16 @@
                 } else {
                     // Add new item
                     const newItemRef = database.ref('items').push();
-                    newItemRef.set(formData)
+                    newItemRef.set(dataToSave)
                         .then(() => {
                             alert('Data berhasil ditambahkan!');
+                            setShowModal(false);
+                            resetForm();
                         })
                         .catch((error) => {
                             alert('Error: ' + error.message);
                         });
                 }
-
-                setShowModal(false);
-                setEditingItem(null);
-                resetForm();
             };
 
             const resetForm = () => {
@@ -390,9 +445,9 @@
             const stats = getStats();
 
             return (
-                <div className="min-h-screen bg-gray-50">
+                <div className="min-h-screen bg-gray-50 relative">
                     {/* Header */}
-                    <header className="bg-green-700 text-white shadow-lg">
+                    <header className="bg-green-700 text-white shadow-lg relative z-10">
                         <div className="container mx-auto px-4 py-4">
                             <div className="flex justify-between items-center">
                                 <div>
@@ -413,7 +468,7 @@
                     </header>
 
                     {/* Navigation */}
-                    <nav className="bg-white shadow-sm">
+                    <nav className="bg-white shadow-sm relative z-10">
                         <div className="container mx-auto px-4">
                             <div className="flex gap-4">
                                 <button
@@ -441,7 +496,7 @@
                     </nav>
 
                     {/* Main Content */}
-                    <main className="container mx-auto px-4 py-8">
+                    <main className="container mx-auto px-4 py-8 relative z-10 bg-gray-50 min-h-screen">
                         {currentPage === 'dashboard' && (
                             <div>
                                 <h2 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
@@ -545,8 +600,19 @@
                         {currentPage === 'data' && (
                             <div>
                                 <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-2xl font-bold text-gray-800">Data Barang</h2>
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-gray-800">Data Barang</h2>
+                                        <p className="text-sm text-gray-600 mt-1">
+                                            Total: {items.length} barang | Ditampilkan: {filteredItems.length} barang
+                                        </p>
+                                    </div>
                                     <div className="flex gap-3">
+                                        <button
+                                            onClick={() => window.location.reload()}
+                                            className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+                                        >
+                                            🔄 Refresh
+                                        </button>
                                         <button
                                             onClick={exportToCSV}
                                             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -655,13 +721,16 @@
                     </main>
 
                     {/* Footer */}
-                    <footer className="bg-white border-t mt-8">
-                        <div className="container mx-auto px-4 py-4">
+                    <footer className="bg-white border-t mt-8 py-4 relative z-20">
+                        <div className="container mx-auto px-4">
                             <p className="text-center text-sm text-gray-600">
                                 Dibuat oleh <span className="font-semibold text-green-700">M. Syarif Hidayatullah, S.Pd., Gr</span> - SMA Terpadu Pondok Pesantren Nurul Huda
                             </p>
                         </div>
                     </footer>
+
+                    {/* Overlay to cover any leaked content */}
+                    <div className="fixed inset-0 pointer-events-none z-0" style={{background: 'linear-gradient(to bottom, transparent 0%, transparent 85%, #f9fafb 95%)'}}></div>
 
                     {/* Modal */}
                     {showModal && (
